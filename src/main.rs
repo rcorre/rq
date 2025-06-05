@@ -41,9 +41,15 @@ fn main() -> io::Result<()> {
 
     let (root, key) = split_keyname(&cli.keyname)?;
     let key = RegKey::predef(root).open_subkey(key)?;
+
     for key in key.enum_keys() {
         let key = key?;
         println!("{key}");
+    }
+
+    for val in key.enum_values() {
+        let (name, val) = val?;
+        println!("\t{name}\t{:?}\t{val}", val.vtype);
     }
 
     Ok(())
