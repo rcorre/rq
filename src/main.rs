@@ -2,19 +2,48 @@ use std::io;
 use winreg::enums::*;
 use winreg::RegKey;
 
-fn main() -> io::Result<()> {
-    println!("File extensions, registered in system:");
-    for i in RegKey::predef(HKEY_CLASSES_ROOT)
-        .enum_keys()
-        .map(|x| x.unwrap())
-        .filter(|x| x.starts_with("."))
-    {
-        println!("{}", i);
-    }
+use clap::Parser;
+use winreg::HKEY;
 
-    let system = RegKey::predef(HKEY_LOCAL_MACHINE).open_subkey("HARDWARE\\DESCRIPTION\\System")?;
-    for (name, value) in system.enum_values().map(|x| x.unwrap()) {
-        println!("{} = {:?}", name, value);
+#[derive(Parser)]
+#[command(version, about, long_about = None)]
+struct Cli {
+    /// Full path of the subkey to query.
+    /// The keyname must include a valid root key, being one of: HKLM, HKCU, HKCR, HKU, and HKCC
+    keyname: String,
+}
+
+fn split_keyname(keyname: &str) -> io::Result<(HKEY, &str)> {
+    let (root, key) = match keyname.split_once('\\') {
+        Some((root, key)) => (root, key),
+        None => (keyname, ""),
+    };
+
+    let root = match root {
+        "HKEY_LOCAL_MACHINE" | "HKLM" => HKEY_LOCAL_MACHINE,
+        "HKEY_CURRENT_USER" | "HKCU" => HKEY_CURRENT_USER,
+        "HKEY_CLASSES_ROOT" | "HKCR" => HKEY_CLASSES_ROOT,
+        "HKEY_USERS" | "HKU" => HKEY_USERS,
+        "HKEY_CURRENT_CONFIG" | "HKCC" => HKEY_CURRENT_CONFIG,
+        _ => {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!("Invalid root: '{root}'"),
+            ))
+        }
+    };
+
+    Ok((root, key))
+}
+
+fn main() -> io::Result<()> {
+    let cli = Cli::parse();
+
+    let (root, key) = split_keyname(&cli.keyname)?;
+    let key = RegKey::predef(root).open_subkey(key)?;
+    for key in key.enum_keys() {
+        let key = key?;
+        println!("{key}");
     }
 
     Ok(())
