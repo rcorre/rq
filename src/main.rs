@@ -10,21 +10,29 @@ use winreg::HKEY;
 struct Cli {
     /// Full path of the subkey to query.
     /// The keyname must include a valid root key, being one of: HKLM, HKCU, HKCR, HKU, and HKCC
-    keyname: String,
+    key: String,
+
+    /// List all registry entries under <key> and its subkeys.
+    #[arg(short, long)]
+    subkeys: bool,
+
+    /// The name of the registry value to query.
+    #[arg(short, long)]
+    value: Option<String>,
 }
 
-fn split_keyname(keyname: &str) -> io::Result<(HKEY, &str)> {
-    let (root, key) = match keyname.split_once('\\') {
+fn split_keyname(keyname: &str) -> io::Result<(String, HKEY, &str)> {
+    let (root, subkey) = match keyname.trim_end_matches('\\').split_once('\\') {
         Some((root, key)) => (root, key),
         None => (keyname, ""),
     };
 
-    let root = match root {
-        "HKEY_LOCAL_MACHINE" | "HKLM" => HKEY_LOCAL_MACHINE,
-        "HKEY_CURRENT_USER" | "HKCU" => HKEY_CURRENT_USER,
-        "HKEY_CLASSES_ROOT" | "HKCR" => HKEY_CLASSES_ROOT,
-        "HKEY_USERS" | "HKU" => HKEY_USERS,
-        "HKEY_CURRENT_CONFIG" | "HKCC" => HKEY_CURRENT_CONFIG,
+    let (root_name, root_key) = match root {
+        "HKEY_LOCAL_MACHINE" | "HKLM" => ("HKEY_LOCAL_MACHINE", HKEY_LOCAL_MACHINE),
+        "HKEY_CURRENT_USER" | "HKCU" => ("HKEY_CURRENT_USER", HKEY_CURRENT_USER),
+        "HKEY_CLASSES_ROOT" | "HKCR" => ("HKEY_CLASSES_ROOT", HKEY_CLASSES_ROOT),
+        "HKEY_USERS" | "HKU" => ("HKEY_USERS", HKEY_USERS),
+        "HKEY_CURRENT_CONFIG" | "HKCC" => ("HKEY_CURRENT_CONFIG", HKEY_CURRENT_CONFIG),
         _ => {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
@@ -33,23 +41,52 @@ fn split_keyname(keyname: &str) -> io::Result<(HKEY, &str)> {
         }
     };
 
-    Ok((root, key))
+    Ok((format!("{root_name}\\{subkey}"), root_key, subkey))
+}
+
+fn print_values(key: &RegKey, filter: Option<&str>) -> io::Result<()> {
+    for val in key.enum_values() {
+        let (name, val) = val?;
+        if filter.is_none_or(|s| s.eq_ignore_ascii_case(&name)) {
+            println!("\t{name}\t{:?}\t{val}", val.vtype);
+        }
+    }
+
+    Ok(())
+}
+
+fn walk(path: String, key: RegKey, filter: Option<&str>) -> io::Result<()> {
+    println!("{path}");
+    print_values(&key, filter)?;
+    println!();
+
+    for subkey in key.enum_keys() {
+        let subkey = subkey?;
+        let path = format!("{path}\\{subkey}");
+        walk(path, key.open_subkey(subkey)?, filter)?;
+    }
+
+    Ok(())
 }
 
 fn main() -> io::Result<()> {
     let cli = Cli::parse();
 
-    let (root, key) = split_keyname(&cli.keyname)?;
+    let (path, root, key) = split_keyname(&cli.key)?;
     let key = RegKey::predef(root).open_subkey(key)?;
 
-    for key in key.enum_keys() {
-        let key = key?;
-        println!("{key}");
-    }
-
-    for val in key.enum_values() {
-        let (name, val) = val?;
-        println!("\t{name}\t{:?}\t{val}", val.vtype);
+    if cli.subkeys {
+        walk(path, key, cli.value.as_deref())?;
+    } else {
+        if key.query_info()?.values > 0 {
+            println!("{path}");
+            print_values(&key, cli.value.as_deref())?;
+            println!();
+        }
+        for subkey in key.enum_keys() {
+            let subkey = subkey?;
+            println!("{path}\\{subkey}");
+        }
     }
 
     Ok(())
