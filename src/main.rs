@@ -27,7 +27,7 @@ fn split_keyname(keyname: &str) -> io::Result<(String, HKEY, &str)> {
         None => (keyname, ""),
     };
 
-    let (root_name, root_key) = match root {
+    let (root_name, root_key) = match root.to_uppercase().as_str() {
         "HKEY_LOCAL_MACHINE" | "HKLM" => ("HKEY_LOCAL_MACHINE", HKEY_LOCAL_MACHINE),
         "HKEY_CURRENT_USER" | "HKCU" => ("HKEY_CURRENT_USER", HKEY_CURRENT_USER),
         "HKEY_CLASSES_ROOT" | "HKCR" => ("HKEY_CLASSES_ROOT", HKEY_CLASSES_ROOT),
@@ -48,7 +48,7 @@ fn print_values(key: &RegKey, filter: Option<&str>) -> io::Result<()> {
     for val in key.enum_values() {
         let (name, val) = val?;
         if filter.is_none_or(|s| s.eq_ignore_ascii_case(&name)) {
-            println!("\t{name}\t{:?}\t{val}", val.vtype);
+            println!("    {name}    {:?}    {val}", val.vtype);
         }
     }
 
