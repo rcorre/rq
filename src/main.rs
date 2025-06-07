@@ -48,6 +48,7 @@ fn print_values(key: &RegKey, filter: Option<&str>) -> io::Result<()> {
     for val in key.enum_values() {
         let (name, val) = val?;
         if filter.is_none_or(|s| s.eq_ignore_ascii_case(&name)) {
+            let name = if name.is_empty() { "(Default)" } else { &name };
             println!("    {name}    {:?}    {val}", val.vtype);
         }
     }

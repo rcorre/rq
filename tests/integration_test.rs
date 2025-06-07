@@ -26,6 +26,9 @@ impl TempRegKey {
             "Test key exists, test not cleaned up?"
         );
 
+        let (def, _) = key.create_subkey("def").unwrap();
+        def.set_value("", &"default value").unwrap();
+
         let (numbers, _) = key.create_subkey("numbers").unwrap();
 
         let (one, _) = numbers.create_subkey("one").unwrap();
@@ -77,18 +80,24 @@ fn test_query() {
     let key = TempRegKey::new();
 
     let path = key.path("");
-    check(&[&path], &format!("{path}\\numbers\n"));
+    check(
+        &[&path],
+        &format!(
+            r#"{path}\def
+{path}\numbers
+"#
+        ),
+    );
 
     let path = key.path("numbers");
     check(
         &[&path],
-        &([
-            format!("{path}\\one"),
-            format!("{path}\\three"),
-            format!("{path}\\two"),
-        ]
-        .join("\n")
-            + "\n"),
+        &format!(
+            r#"{path}\one
+{path}\three
+{path}\two
+"#
+        ),
     );
 }
 
@@ -101,6 +110,9 @@ fn test_query_recurse() {
         &[&path, "-s"],
         &format!(
             r#"{path}
+
+{path}\def
+    (Default)    REG_SZ    default value
 
 {path}\numbers
 
@@ -146,6 +158,8 @@ fn test_query_value_recurse() {
         &[&path, "-s", "-v", "amount"],
         &format!(
             r#"{path}
+
+{path}\def
 
 {path}\numbers
 
