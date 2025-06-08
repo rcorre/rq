@@ -1,8 +1,9 @@
 use std::io;
-use winreg::enums::*;
-use winreg::RegKey;
 
 use clap::Parser;
+use rayon::prelude::*;
+use winreg::enums::*;
+use winreg::RegKey;
 use winreg::HKEY;
 
 #[derive(Parser)]
@@ -56,15 +57,22 @@ fn print_values(key: &RegKey, filter: Option<&str>) -> io::Result<()> {
     Ok(())
 }
 
-fn walk(path: String, key: RegKey, filter: Option<&str>) -> io::Result<()> {
-    println!("{path}");
-    print_values(&key, filter)?;
-    println!();
+fn walk(key: RegKey, path: String, filter: Option<&str>) -> io::Result<()> {
+    let par_iter =
+        rayon::iter::walk_tree_prefix((key, path), |(key, path)| -> Vec<(RegKey, String)> {
+            key.enum_keys()
+                .map(|name| name.unwrap())
+                .map(|name| (key.open_subkey(&name).unwrap(), name))
+                .map(|(key, name)| (key, format!("{path}\\{name}")))
+                .collect::<Vec<_>>()
+        });
 
-    for subkey in key.enum_keys() {
-        let subkey = subkey?;
-        let path = format!("{path}\\{subkey}");
-        walk(path, key.open_subkey(subkey)?, filter)?;
+    let items: Vec<_> = par_iter.collect();
+
+    for (key, path) in items {
+        println!("{path}");
+        print_values(&key, filter).unwrap();
+        println!();
     }
 
     Ok(())
@@ -77,7 +85,7 @@ fn main() -> io::Result<()> {
     let key = RegKey::predef(root).open_subkey(key)?;
 
     if cli.subkeys {
-        walk(path, key, cli.value.as_deref())?;
+        walk(key, path, cli.value.as_deref())?;
     } else {
         if key.query_info()?.values > 0 {
             println!("{path}");
