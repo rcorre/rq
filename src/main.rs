@@ -20,6 +20,22 @@ struct Cli {
     /// The name of the registry value to query.
     #[arg(short, long)]
     value: Option<String>,
+
+    /// A glob defining the key name or value to find.
+    /// Matches any values containing this value.
+    /// Defaults to "*".
+    #[arg(short, long)]
+    find: Option<String>,
+
+    /// Search only in key names.
+    /// Must be used with -f.
+    #[arg(short, long)]
+    keys: Option<String>,
+
+    /// Search only in key data.
+    /// Must be used with -f.
+    #[arg(short, long)]
+    data: Option<String>,
 }
 
 fn split_keyname(keyname: &str) -> io::Result<(String, HKEY, &str)> {
@@ -57,7 +73,7 @@ fn print_values(key: &RegKey, filter: Option<&str>) -> io::Result<()> {
     Ok(())
 }
 
-fn walk(key: RegKey, path: String, filter: Option<&str>) -> io::Result<()> {
+fn walk(key: RegKey, path: String, cli: &Cli) -> io::Result<()> {
     let par_iter =
         rayon::iter::walk_tree_prefix((key, path), |(key, path)| -> Vec<(RegKey, String)> {
             key.enum_keys()
@@ -70,8 +86,11 @@ fn walk(key: RegKey, path: String, filter: Option<&str>) -> io::Result<()> {
     let items: Vec<_> = par_iter.collect();
 
     for (key, path) in items {
+        if cli.find.as_ref().is_some_and(|f| !path.contains(f)) {
+            continue;
+        }
         println!("{path}");
-        print_values(&key, filter).unwrap();
+        print_values(&key, cli.value.as_deref()).unwrap();
         println!();
     }
 
@@ -85,7 +104,7 @@ fn main() -> io::Result<()> {
     let key = RegKey::predef(root).open_subkey(key)?;
 
     if cli.subkeys {
-        walk(key, path, cli.value.as_deref())?;
+        walk(key, path, &cli)?;
     } else {
         if key.query_info()?.values > 0 {
             println!("{path}");

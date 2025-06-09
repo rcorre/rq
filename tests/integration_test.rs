@@ -176,3 +176,20 @@ fn test_query_value_recurse() {
         ),
     );
 }
+
+#[test]
+fn test_query_recurse_find() {
+    let key = TempRegKey::new();
+
+    let path = key.path("");
+    check(
+        &[&path, "-s", "-f", "one"],
+        &format!(
+            r#"{path}\numbers\one
+    amount    REG_DWORD    1
+    kind    REG_SZ    number
+
+"#
+        ),
+    );
+}
