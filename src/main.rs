@@ -30,12 +30,12 @@ struct Cli {
     /// Search only in key names.
     /// Must be used with -f.
     #[arg(short, long)]
-    keys: Option<String>,
+    keys: bool,
 
     /// Search only in key data.
     /// Must be used with -f.
     #[arg(short, long)]
-    data: Option<String>,
+    data: bool,
 }
 
 fn split_keyname(keyname: &str) -> io::Result<(String, HKEY, &str)> {
@@ -83,7 +83,14 @@ fn walk(key: RegKey, path: String, cli: &Cli) -> io::Result<()> {
                 .collect::<Vec<_>>()
         });
 
-    let items: Vec<_> = par_iter.collect();
+    let find_keys = cli.find.is_some() && (cli.keys || !cli.data);
+
+    let items: Vec<_> = match &cli.find {
+        Some(f) => par_iter
+            .filter(|(_key, path)| !find_keys || path.contains(f))
+            .collect(),
+        None => par_iter.collect(),
+    };
 
     for (key, path) in items {
         if cli.find.as_ref().is_some_and(|f| !path.contains(f)) {
