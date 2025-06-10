@@ -73,6 +73,16 @@ fn print_values(key: &RegKey, filter: Option<&str>) -> io::Result<()> {
     Ok(())
 }
 
+fn filter(_key: &RegKey, path: &String, cli: &Cli) -> bool {
+    if let Some(f) = &cli.find {
+        if (cli.keys || !cli.data) && !path.contains(f) {
+            return false;
+        }
+    };
+
+    true
+}
+
 fn walk(key: RegKey, path: String, cli: &Cli) -> io::Result<()> {
     let par_iter =
         rayon::iter::walk_tree_prefix((key, path), |(key, path)| -> Vec<(RegKey, String)> {
@@ -83,19 +93,11 @@ fn walk(key: RegKey, path: String, cli: &Cli) -> io::Result<()> {
                 .collect::<Vec<_>>()
         });
 
-    let find_keys = cli.find.is_some() && (cli.keys || !cli.data);
-
-    let items: Vec<_> = match &cli.find {
-        Some(f) => par_iter
-            .filter(|(_key, path)| !find_keys || path.contains(f))
-            .collect(),
-        None => par_iter.collect(),
-    };
+    let items: Vec<_> = par_iter
+        .filter(|(_key, path)| filter(_key, path, cli))
+        .collect();
 
     for (key, path) in items {
-        if cli.find.as_ref().is_some_and(|f| !path.contains(f)) {
-            continue;
-        }
         println!("{path}");
         print_values(&key, cli.value.as_deref()).unwrap();
         println!();
