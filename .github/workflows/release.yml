@@ -1,0 +1,51 @@
+name: Release
+on:
+  push:
+    tags: [ '[0-9]+.[0-9]+*' ]
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        os:
+          - windows-latest
+          - windows-11-arm
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v4
+
+      - name: Build release binary
+        run: cargo build --release --locked
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.os }}
+          path: target/release/rq.exe
+          if-no-files-found: error
+
+  publish:
+    needs: [build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v4
+
+      - name: Download Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Create Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir artifacts/archives
+
+          cd ../windows-latest
+          zip "../archives/rq-$GITHUB_REF_NAME-amd64.zip" rq.exe
+
+          gh release create "$GITHUB_REF_NAME" --notes-from-tag ../archives/*
