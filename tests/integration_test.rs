@@ -65,50 +65,22 @@ impl Drop for TempRegKey {
     }
 }
 
-fn check(args: &[&str], expected: &str) {
+fn run(args: &[&str]) -> String {
     let output = Command::new(env!("CARGO_BIN_EXE_rq"))
         .args(args)
         .output()
         .unwrap();
-    let output =
-        String::from_utf8(output.stdout).unwrap() + &String::from_utf8(output.stderr).unwrap();
-    assert_eq!(output, expected);
+    String::from_utf8(output.stdout).unwrap() + &String::from_utf8(output.stderr).unwrap()
 }
 
 #[test]
-fn test_query() {
+fn test_query_all() {
     let key = TempRegKey::new();
 
     let path = key.path("");
-    check(
-        &[&path],
-        &format!(
-            r#"{path}\def
-{path}\numbers
-"#
-        ),
-    );
-
-    let path = key.path("numbers");
-    check(
-        &[&path],
-        &format!(
-            r#"{path}\one
-{path}\three
-{path}\two
-"#
-        ),
-    );
-}
-
-#[test]
-fn test_query_recurse() {
-    let key = TempRegKey::new();
-
-    let path = key.path("");
-    check(
-        &[&path, "-s"],
-        &format!(
+    assert_eq!(
+        run(&[&path]),
+        format!(
             r#"{path}
 
 {path}\def
@@ -134,15 +106,26 @@ fn test_query_recurse() {
 }
 
 #[test]
-fn test_query_value() {
+fn test_query_key() {
     let key = TempRegKey::new();
 
-    let path = key.path("numbers\\one");
-    check(
-        &[&path, "-s", "-v", "amount"],
-        &format!(
-            r#"{path}
+    let path = key.path("");
+    assert_eq!(
+        run(&[&path, "-k", "number"]),
+        format!(
+            r#"{path}\numbers
+
+{path}\numbers\one
     amount    REG_DWORD    1
+    kind    REG_SZ    number
+
+{path}\numbers\three
+    amount    REG_DWORD    3
+    kind    REG_SZ    number
+
+{path}\numbers\two
+    amount    REG_DWORD    2
+    kind    REG_SZ    number
 
 "#
         ),
@@ -150,20 +133,14 @@ fn test_query_value() {
 }
 
 #[test]
-fn test_query_value_recurse() {
+fn test_query_value() {
     let key = TempRegKey::new();
 
     let path = key.path("");
-    check(
-        &[&path, "-s", "-v", "amount"],
-        &format!(
-            r#"{path}
-
-{path}\def
-
-{path}\numbers
-
-{path}\numbers\one
+    assert_eq!(
+        run(&[&path, "-v", "amount"]),
+        format!(
+            r#"{path}\numbers\one
     amount    REG_DWORD    1
 
 {path}\numbers\three
@@ -171,23 +148,6 @@ fn test_query_value_recurse() {
 
 {path}\numbers\two
     amount    REG_DWORD    2
-
-"#
-        ),
-    );
-}
-
-#[test]
-fn test_query_recurse_find() {
-    let key = TempRegKey::new();
-
-    let path = key.path("");
-    check(
-        &[&path, "-s", "-f", "one"],
-        &format!(
-            r#"{path}\numbers\one
-    amount    REG_DWORD    1
-    kind    REG_SZ    number
 
 "#
         ),

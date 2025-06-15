@@ -4,7 +4,6 @@ use clap::Parser;
 use rayon::prelude::*;
 use winreg::enums::*;
 use winreg::RegKey;
-use winreg::RegValue;
 use winreg::HKEY;
 
 #[derive(Parser)]
@@ -12,31 +11,19 @@ use winreg::HKEY;
 struct Cli {
     /// Full path of the subkey to query.
     /// The keyname must include a valid root key, being one of: HKLM, HKCU, HKCR, HKU, and HKCC
-    key: String,
+    root: String,
 
-    /// List all registry entries under <key> and its subkeys.
+    /// Return only keys matching this string.
     #[arg(short, long)]
-    subkeys: bool,
+    key: Option<String>,
 
-    /// The name of the registry value to query.
+    /// Return only values matching this string.
     #[arg(short, long)]
     value: Option<String>,
 
-    /// A glob defining the key name or value to find.
-    /// Matches any values containing this value.
-    /// Defaults to "*".
+    /// Return only values with data matching this string.
     #[arg(short, long)]
-    find: Option<String>,
-
-    /// Search only in key names.
-    /// Must be used with -f.
-    #[arg(short, long)]
-    keys: bool,
-
-    /// Search only in key data.
-    /// Must be used with -f.
-    #[arg(short, long)]
-    data: bool,
+    data: Option<String>,
 }
 
 fn split_keyname(keyname: &str) -> io::Result<(String, HKEY, &str)> {
@@ -62,49 +49,6 @@ fn split_keyname(keyname: &str) -> io::Result<(String, HKEY, &str)> {
     Ok((format!("{root_name}\\{subkey}"), root_key, subkey))
 }
 
-fn print_values(values: &Vec<(String, RegValue)>) -> io::Result<()> {
-    for (name, val) in values {
-        let name = if name.is_empty() { "(Default)" } else { name };
-        println!("    {name}    {:?}    {val}", val.vtype);
-    }
-
-    Ok(())
-}
-
-fn filter(_key: &RegKey, path: &str, cli: &Cli) -> bool {
-    if let Some(f) = &cli.find {
-        if (cli.keys || !cli.data) && !path.contains(f) {
-            return false;
-        }
-    };
-
-    true
-}
-
-fn get_values(key: &RegKey, cli: &Cli) -> Vec<(String, RegValue)> {
-    key.enum_values()
-        .map(|val| val.unwrap()) // TODO: handle errors
-        .filter(|(name, _val)| match &cli.value {
-            // If a specific value was requested, only return that
-            Some(v) => v.eq_ignore_ascii_case(name),
-            None => true,
-        })
-        .filter(|(_name, val)| {
-            let Some(f) = &cli.find else {
-                // not filtering
-                return true;
-            };
-            if cli.keys && !cli.data {
-                // filtering only on keys
-                return true;
-            }
-
-            // TODO: don't convert everything to a string to filter it
-            val.to_string().contains(f)
-        })
-        .collect()
-}
-
 fn walk(key: RegKey, path: String, cli: &Cli) -> io::Result<()> {
     let par_iter =
         rayon::iter::walk_tree_prefix((key, path), |(key, path)| -> Vec<(RegKey, String)> {
@@ -116,13 +60,40 @@ fn walk(key: RegKey, path: String, cli: &Cli) -> io::Result<()> {
         });
 
     let items: Vec<_> = par_iter
-        .filter(|(_key, path)| filter(_key, path, cli))
-        .map(|(key, path)| (get_values(&key, cli), path))
+        // first filter out keys not matching the filter
+        .filter(|(_key, path)| cli.key.as_ref().is_none_or(|key| path.contains(key)))
+        // fiter by values
+        .filter_map(|(key, path)| {
+            let mut values = Vec::new();
+            for val in key.enum_values() {
+                let (name, value) = val.unwrap();
+                if cli.value.as_ref().is_some_and(|v| !name.contains(v)) {
+                    continue;
+                }
+                let data = value.to_string();
+                if cli
+                    .data
+                    .as_ref()
+                    .is_some_and(|d| !data.to_string().contains(d))
+                {
+                    continue;
+                }
+                values.push((name, data, value.vtype))
+            }
+            if values.is_empty() && (cli.value.is_some() || cli.data.is_some()) {
+                None
+            } else {
+                Some((values, path))
+            }
+        })
         .collect();
 
     for (values, path) in items {
         println!("{path}");
-        print_values(&values).unwrap();
+        for (name, val, vtype) in values {
+            let name = if name.is_empty() { "(Default)" } else { &name };
+            println!("    {name}    {vtype:?}    {val}");
+        }
         println!();
     }
 
@@ -132,22 +103,10 @@ fn walk(key: RegKey, path: String, cli: &Cli) -> io::Result<()> {
 fn main() -> io::Result<()> {
     let cli = Cli::parse();
 
-    let (path, root, key) = split_keyname(&cli.key)?;
+    let (path, root, key) = split_keyname(&cli.root)?;
     let key = RegKey::predef(root).open_subkey(key)?;
 
-    if cli.subkeys {
-        walk(key, path, &cli)?;
-    } else {
-        if key.query_info()?.values > 0 {
-            println!("{path}");
-            print_values(&get_values(&key, &cli))?;
-            println!();
-        }
-        for subkey in key.enum_keys() {
-            let subkey = subkey?;
-            println!("{path}\\{subkey}");
-        }
-    }
+    walk(key, path, &cli)?;
 
     Ok(())
 }
